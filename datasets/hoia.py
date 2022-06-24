@@ -107,13 +107,24 @@ class HOIADataset(torch.utils.data.Dataset):
         if img_set == 'train':
             self.ids = []
             for idx, img_anno in enumerate(self.annotations):
+                flag_bad = False
+                if img_anno['file_name'] == 'trainval_001644.png':
+                    print(idx)
+                    print(img_anno)
                 if len(img_anno['annotations']) > self.num_queries:
+                    flag_bad = True
                     continue
                 for hoi in img_anno['hoi_annotation']:
+                    if img_anno['file_name'] == 'trainval_001644.png':
+                        print(f"subject id: {hoi['subject_id']}, object_id: {hoi['object_id']}, len(img_anno['annotations'])={len(img_anno['annotations'])}")
                     if hoi['subject_id'] >= len(img_anno['annotations']) or hoi['object_id'] >= len(img_anno['annotations']):
+                        flag_bad = True
                         break
                 else:
-                    self.ids.append(idx)
+                    if not flag_bad:
+                        self.ids.append(idx)
+
+
         else:
             self.ids = list(range(len(self.annotations)))
 
@@ -249,13 +260,23 @@ class HOIADataset(torch.utils.data.Dataset):
             annotations = json.load(f)
 
         counts = defaultdict(lambda: 0)
-        for img_anno in annotations:
+        for img_id, img_anno in enumerate(annotations):
+            if len(img_anno['annotations']) > self.num_queries:
+                continue
             hois = img_anno['hoi_annotation']
             bboxes = img_anno['annotations']
             for hoi in hois:
-                triplet = (self._valid_obj_ids.index(bboxes[hoi['subject_id']]['category_id']),
-                           self._valid_obj_ids.index(bboxes[hoi['object_id']]['category_id']),
-                           self._valid_verb_ids.index(hoi['category_id']))
+                flag_bad = False
+                for hoi in img_anno['hoi_annotation']:
+                    
+                    if hoi['subject_id'] >= len(img_anno['annotations']) or hoi['object_id'] >= len(img_anno['annotations']):
+                        flag_bad = True
+                        break
+                if flag_bad:
+                    break
+                triplet = (self._valid_obj_ids.index(int(bboxes[hoi['subject_id']]['category_id'])),
+                            self._valid_obj_ids.index(int(bboxes[hoi['object_id']]['category_id'])),
+                            self._valid_verb_ids.index(int(hoi['category_id'])))
                 counts[triplet] += 1
         self.rare_triplets = []
         self.non_rare_triplets = []
@@ -316,7 +337,7 @@ def build(image_set, args):
         'train': (os.path.join(root, 'images', 'train'), os.path.join(root, 'annotations', 'train_anno.json')),
         'val': (os.path.join(root, 'images', 'test'), os.path.join(root, 'annotations', 'test_anno.json'))
     }
-    CORRECT_MAT_PATH = os.path.join(root, 'corre_hico.npy')
+    CORRECT_MAT_PATH = os.path.join(root, 'corre_hoia.npy')
 
     img_folder, anno_file = PATHS[image_set]
     dataset = HOIADataset(image_set, img_folder, anno_file, transforms=make_hico_transforms(image_set),
