@@ -74,7 +74,7 @@ def get_args_parser():
     parser.add_argument('--dec_layers', default=6, type=int,
                         help="Number of decoding layers in the transformer")
     parser.add_argument('--dim_feedforward', default=1024, type=int,
-                        help="Intermediate size of the feedforward layers in the transformer blocks")
+                        help="Intermediate size of the feedforward layers in the transformer blocks") # NOTE: this is different from ASNET which uses 2048
     parser.add_argument('--hidden_dim', default=256, type=int,
                         help="Size of the embeddings (dimension of the transformer)")
     parser.add_argument('--dropout', default=0.1, type=float,
@@ -106,6 +106,7 @@ def get_args_parser():
     # * Matcher
     parser.add_argument('--set_cost_class', default=1, type=float,
                         help="Class coefficient in the matching cost")
+    # NOTE: the costs on the bbox and giou are lighter compared to asnet
     parser.add_argument('--set_cost_bbox', default=2.5, type=float,
                         help="L1 box coefficient in the matching cost")
     parser.add_argument('--set_cost_giou', default=1, type=float,
