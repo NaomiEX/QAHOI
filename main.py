@@ -132,7 +132,11 @@ def get_args_parser():
     parser.add_argument('--coco_panoptic_path', type=str)
     parser.add_argument('--remove_difficult', action='store_true')
     parser.add_argument('--hoi_path', default='./data/hico_20160224_det', type=str)
-
+    parser.add_argument('--train_path', default='./data/hico_20160224_det/train', type=str)
+    parser.add_argument('--test_path', default='./data/hico_20160224_det/test', type=str)
+    parser.add_argument('--train_anno_path', default='./data/hico_20160224_det/annotations/trainval_hico.json', type=str)
+    parser.add_argument('--test_anno_path', default='./data/hico_20160224_det/annotations/test_hico.json', type=str)
+    
     parser.add_argument('--output_dir', default='',
                         help='path where to save, empty for no saving')
     parser.add_argument('--device', default='cuda',

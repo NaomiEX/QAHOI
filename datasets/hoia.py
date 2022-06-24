@@ -108,15 +108,11 @@ class HOIADataset(torch.utils.data.Dataset):
             self.ids = []
             for idx, img_anno in enumerate(self.annotations):
                 flag_bad = False
-                if img_anno['file_name'] == 'trainval_001644.png':
-                    print(idx)
-                    print(img_anno)
+                
                 if len(img_anno['annotations']) > self.num_queries:
                     flag_bad = True
                     continue
                 for hoi in img_anno['hoi_annotation']:
-                    if img_anno['file_name'] == 'trainval_001644.png':
-                        print(f"subject id: {hoi['subject_id']}, object_id: {hoi['object_id']}, len(img_anno['annotations'])={len(img_anno['annotations'])}")
                     if hoi['subject_id'] >= len(img_anno['annotations']) or hoi['object_id'] >= len(img_anno['annotations']):
                         flag_bad = True
                         break
@@ -334,8 +330,8 @@ def build(image_set, args):
     root = Path(args.hoi_path)
     assert root.exists(), f'provided HOI path {root} does not exist'
     PATHS = {
-        'train': (os.path.join(root, 'images', 'train'), os.path.join(root, 'annotations', 'train_anno.json')),
-        'val': (os.path.join(root, 'images', 'test'), os.path.join(root, 'annotations', 'test_anno.json'))
+        'train': (args.train_path, args.train_anno_pat),
+        'val': (args.test_path, args.test_anno_path)
     }
     CORRECT_MAT_PATH = os.path.join(root, 'corre_hoia.npy')
 
