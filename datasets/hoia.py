@@ -133,7 +133,7 @@ class HOIADataset(torch.utils.data.Dataset):
         boxes = [obj['bbox'] for obj in img_anno['annotations']]
         # guard against no boxes via resizing
         # NOTE: I don't think this works, but HOIA has no empty annotations
-        boxes = torch.as_tensor(boxes, dtype=torch.float32).reshape(-1, 4)
+        boxes = torch.as_tensor(boxes, dtype=torch.float32).reshape(-1, 4) # shape: [N_o, 4], where N_o is the number of objects in the image
 
         if self.img_set == 'train':
             # Add index for confirming which boxes are kept after image transformation
@@ -142,21 +142,27 @@ class HOIADataset(torch.utils.data.Dataset):
             classes = [(i, self._valid_obj_ids.index(int(obj['category_id']))) for i, obj in enumerate(img_anno['annotations'])]
         else:
             classes = [self._valid_obj_ids.index(int(obj['category_id'])) for obj in img_anno['annotations']]
-        classes = torch.tensor(classes, dtype=torch.int64)
+        classes = torch.tensor(classes, dtype=torch.int64) # shape: [N_o, 2]
 
         target = {}
         target['orig_size'] = torch.as_tensor([int(h), int(w)])
         target['size'] = torch.as_tensor([int(h), int(w)])
+        
         if self.img_set == 'train':
+            # HOIA follows x_1, y_1, x_2, y_2 scheme
             boxes[:, 0::2].clamp_(min=0, max=w)
             boxes[:, 1::2].clamp_(min=0, max=h)
+            # ensures that x_2 > x_1 and y_2 > y_1
+            # in HOIA all annotations satisfy this
             keep = (boxes[:, 3] > boxes[:, 1]) & (boxes[:, 2] > boxes[:, 0])
             boxes = boxes[keep]
             classes = classes[keep]
 
             target['boxes'] = boxes
-            target['labels'] = classes
+            target['labels'] = classes # shape [N_o, 2]
+            # all 0s, N/A
             target['iscrowd'] = torch.tensor([0 for _ in range(boxes.shape[0])])
+            # (x_2 - x_1) * (y_2 - y_1) = width * height
             target['area'] = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
 
             if self._transforms is not None:
@@ -164,29 +170,52 @@ class HOIADataset(torch.utils.data.Dataset):
 
             kept_box_indices = [label[0] for label in target['labels']]
 
-            target['labels'] = target['labels'][:, 1]
+            # get the valid_obj_category_id for every label
+            target['labels'] = target['labels'][:, 1] # [N_o]
 
+            # obj_labels is the list of categories involved in the hois in order [N_iu], 
+            #   where N_iu is the number of HOIs involving unique (subject, object) pairs
+            # verb_labels is the list of categories of interactions of the hois in order [N_iu, 11], where 11 is the number of valid obj_classes
+            #   NOTE: these verb_labels may not be one-hot encoded because if there is >1 interaction between the same sub-obj pair, 
+            #         then there can be multiple 1s in the vector
+            # sub_boxes is the list of bboxes of the subjects (humans) involved in hois in order [N_iu, 4]
+            # obj_boxes is the list of bboxes of the objects involved in hois in order [N_iu, 4]
             obj_labels, verb_labels, sub_boxes, obj_boxes = [], [], [], []
+            # list of tuples containing the index of the subject and the index of the object [N_iu, 4]
             sub_obj_pairs = []
+            
+            # one-hot encoded vectors for the interaction categories 
+            # (this differs from verb_labels because that one can have multiple 1s per vector 
+            # if there are multiple interactions involving the same (subject, object) pair, 
+            # however this list simply stores them as separate one-hot encoded vectors in order,
+            # in other words, it does not discriminate between interactions from repeating subject-object pairs)
             verb_label_enc = [0 for _ in range(len(self._valid_verb_ids))]
             for hoi in img_anno['hoi_annotation']:
                 if hoi['subject_id'] not in kept_box_indices or hoi['object_id'] not in kept_box_indices:
                     continue
                 sub_obj_pair = (hoi['subject_id'], hoi['object_id'])
+                # get the index of the category_id in terms of the list of valid verb ids, this step is required because the list starts from 1
+                # so category 1 has index 0
                 verb_label_enc[self._valid_verb_ids.index(hoi['category_id'])] = 1
-                if sub_obj_pair in sub_obj_pairs:
+                
+                if sub_obj_pair in sub_obj_pairs: # if there are multiple interactions involving the same subject and object,
+                    # get the index where the previous pair was stored, then place a 1 in the relevant interaction category
                     verb_labels[sub_obj_pairs.index(sub_obj_pair)][self._valid_verb_ids.index(hoi['category_id'])] = 1
                 else:
                     sub_obj_pairs.append(sub_obj_pair)
+                    # get the label for the object involved in the HOI
                     obj_labels.append(target['labels'][kept_box_indices.index(hoi['object_id'])])
                     verb_label = [0 for _ in range(len(self._valid_verb_ids))]
-                    verb_label[self._valid_verb_ids.index(hoi['category_id'])] = 1
+                    verb_label[self._valid_verb_ids.index(hoi['category_id'])] = 1 # one-hot encoding of the interaction category
+                    
+                    ## gets the subject and object bboxes
                     sub_box = target['boxes'][kept_box_indices.index(hoi['subject_id'])]
                     obj_box = target['boxes'][kept_box_indices.index(hoi['object_id'])]
 
                     verb_labels.append(verb_label)
                     sub_boxes.append(sub_box)
                     obj_boxes.append(obj_box)
+                    
             if len(sub_obj_pairs) == 0:
                 target['obj_labels'] = torch.zeros((0,), dtype=torch.int64)
                 target['verb_labels'] = torch.zeros((0, len(self._valid_verb_ids)), dtype=torch.float32)
@@ -199,7 +228,7 @@ class HOIADataset(torch.utils.data.Dataset):
                 target['sub_boxes'] = torch.stack(sub_boxes)
                 target['obj_boxes'] = torch.stack(obj_boxes)
                 target['verb_label_enc'] = torch.as_tensor(verb_label_enc, dtype=torch.float32)
-        else:
+        else: # if image_set == 'val'
             target['boxes'] = boxes
             target['labels'] = classes
             target['id'] = idx
@@ -245,6 +274,7 @@ def make_hico_transforms(image_set):
 
     normalize = T.Compose([
         T.ToTensor(),
+        # here is also where the target is converted to cx, cy, w, h
         T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
 
@@ -253,12 +283,17 @@ def make_hico_transforms(image_set):
     if image_set == 'train':
         return T.Compose([
             T.RandomHorizontalFlip(),
+            # brightness_factor, contrast_factor, saturation_factor range = [0.6, 1.4]
+            # hue = 0 (remains unchanged)
             T.ColorJitter(.4, .4, .4),
+            # randomly select between the two transformations with 0.5 probability
             T.RandomSelect(
                 T.RandomResize(scales, max_size=1333),
                 T.Compose([
-                    T.RandomResize([400, 500, 600]),
+                    T.RandomResize([400, 500, 600]), # no max size (unbounded resize)
+                    # randomly crop it to a boc between 384x384 to 600x600 (provided 600 <= image width and height)
                     T.RandomSizeCrop(384, 600),
+                    # Randomly resize the image again but this time following the normal scales
                     T.RandomResize(scales, max_size=1333),
                 ])
             ),
